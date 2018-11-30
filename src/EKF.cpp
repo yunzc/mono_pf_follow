@@ -41,7 +41,7 @@ void EKF::calculate_dRdthet(Matrix3f& mat){
 	float phi = state(5)*dt;
 	float theta = state(4)*dt; 
 	float psi = state(3)*dt;
-	R(0,0) = -cos(phi)sin(theta); 
+	R(0,0) = -cos(phi)*sin(theta); 
 	R(1,0) = -sin(phi)*sin(theta); 
 	R(2,0) = -cos(theta);
 	R(0,1) = cos(phi)*cos(theta)*sin(psi);
@@ -93,12 +93,12 @@ void EKF::calculate_state_est(VectorXf& state_est){
 }
 void EKF::calculate_meas_est(VectorXf state_est, VectorXf& meas_est){
 	// calculate measurement from state estimate 
-	int num_obstacles = (state_est - 12)/3;
+	int num_obstacles = (state_est.size() - 12)/3;
 	meas_est.setZero(num_obstacles + 4);
-	meas_est(0) = f*(state_est(7) - w/2)/x + u0; 
-	meas_est(1) = f*(state_est(8) - h/2)/x + v0; 
-	meas_est(2) = f*(state_est(7) + w/2)/x + u0;
-	meas_est(3) = f*(state_est(8) + h/2)/x + v0; 
+	meas_est(0) = f*(state_est(7) - w/2)/state_est(6) + u0; 
+	meas_est(1) = f*(state_est(8) - h/2)/state_est(6) + v0; 
+	meas_est(2) = f*(state_est(7) + w/2)/state_est(6) + u0;
+	meas_est(3) = f*(state_est(8) + h/2)/state_est(6) + v0; 
 	for (int i = 0; i < num_obstacles; i++){
 		meas_est(4+2*i) = f*state_est(12+3*i+1)/state_est(12+3*i) + u0; 
 		meas_est(4+2*i+1) = f*state_est(12+3*i+2)/state_est(12+3*i) + v0; 
@@ -123,33 +123,87 @@ void EKF::calculate_F(MatrixXf& F){
 	// dft/dwx
 	Matrix3f dRdpsi; 
 	calculate_dRdpsi(dRdpsi);
-	F.block(6,3,3,0) = dRdpsi*target_state.segment(0,3);
-	F.block(9,3,3,0) = dRdpsi*target_state.segment(3,3);
+	F.block(6,3,3,1) = dRdpsi*target_state.segment(0,3);
+	F.block(9,3,3,1) = dRdpsi*target_state.segment(3,3);
 	// dft/dwy 
-	Matrix3f dRthet;
-	calculate_dRdthet(dRthet);
-	F.block(6,4,3,0) = dRthet*target_state.segment(0,3);
-	F.block(9,4,3,0) = dRthet*target_state.segment(3,3);
+	Matrix3f dRdthet;
+	calculate_dRdthet(dRdthet);
+	F.block(6,4,3,1) = dRdthet*target_state.segment(0,3);
+	F.block(9,4,3,1) = dRdthet*target_state.segment(3,3);
 	//dft/dwz 
-	Matrix3f dRphi; 
-	calculate_dRdphi(dRphi);
-	F.block(6,5,3,0) = dRphi*target_state.segment(0,3);
-	F.block(6,5,3,0) = dRphi*target_state.segment(3,3);
+	Matrix3f dRdphi; 
+	calculate_dRdphi(dRdphi);
+	F.block(6,5,3,1) = dRdphi*target_state.segment(0,3);
+	F.block(6,5,3,1) = dRdphi*target_state.segment(3,3);
 	// [dft/dx, dft/dy. dft/dz] 
 	F.block(6,6,3,3) = R; 
 	// zeros for F.block(9,6,3,3) 
 	// [dft/dxdot, dft/dydot, dft/dzdot] are zeros 
 	F.block(6,9,3,3) = R*dt;
 	F.block(9,9,3,3) = R; 
+	int num_obstacles = (state.size() - 12)/3;
+	for (int i = 0; i < num_obstacles; i++){
+		// [dfy/dvx, dfy/dvy, dfy/dvz]
+		F.block(12+3*i,0,3,3) = -dt*R; 
+		Vector3f obstacle_state;
+		obstacle_state(0) = state(12+3*i) - state(0)*dt; 
+		obstacle_state(1) = state(12+3*i+1) - state(1)*dt; 
+		obstacle_state(2) = state(12+3*i+2) - state(2)*dt; 
+		//dfy/dwx
+		F.block(12+3*i,3,3,1) = dRdpsi*obstacle_state;
+		//dfy/dwy
+		F.block(12+3*i,4,3,1) = dRdthet*obstacle_state;
+		//dfy/dwz
+		F.block(12+3*i,5,3,1) = dRdphi*obstacle_state;
+		//[dfy/dxi, dfy/dyi, dfy/dzi]
+		F.block(12+3*i,12+3*i,3,3) = R;
+	}
 }
 
 void EKF::calculate_H(MatrixXf& H){
-
+	int num_obstacles = (state.size() - 12)/3;
+	H.setZero(4 + num_obstacles*2, 12 + num_obstacles*3);
+	// first 6 cols all zeros
+	// the target 
+	H(0,6) = -f*(state(7) - w/2)/(state(6)*state(6));
+	H(1,6) = -f*(state(8) - h/2)/(state(6)*state(6));
+	H(2,6) = -f*(state(7) + w/2)/(state(6)*state(6));
+	H(3,6) = -f*(state(8) + h/2)/(state(6)*state(6));
+	H.block(0,7,2,2) = f/state(6)*MatrixXf::Identity(2,2);
+	H.block(3,7,2,2) = f/state(6)*MatrixXf::Identity(2,2);
+	// obstacle landmarks 
+	for (int i = 0; i < num_obstacles; i++){
+		H(4+2*i,12+3*i) = -f*state(12+3*i+1)/(state(12+3*i)*state(12+3*i));
+		H(4+2*i+1,12+3*i) = -f*state(12+3*i+2)/(state(12+3*i)*state(12+3*i));
+		H(4+2*i,12+3*i+1) = f/state(12+3*i);
+		H(4+2*i,12+3*i+2) = f/state(12+3*i);
+	}
 }
 
 void EKF::add_landmark(Vector3f pos, Matrix3f pos_covar){
-
+	MatrixXf new_covar;
+	new_covar.setZero(state.size()+3, state.size()+3); 
+	new_covar.topLeftCorner(state.size(), state.size()) = covariance; 
+	VectorXf new_state;
+	new_state.setZero(state.size()+3); 
+	new_state.head(state.size()) = state; 
+	new_covar.bottomRightCorner(3,3) = pos_covar; 
+	new_state.tail(3) = pos; 
 }
+
+void EKF::delete_landmark(int indx){
+	int curr_num_obstacles = (state.size()-12)/3;
+	MatrixXf new_covar;
+	new_covar.setZero(state.size()-3, state.size()-3); 
+	new_covar.topLeftCorner(12+3*indx, 12+3*indx) = covariance.topLeftCorner(12+3*indx, 12+3*indx); 
+	VectorXf new_state;
+	new_state.setZero(state.size()-3); 
+	new_state.head(12+3*indx) = state.head(12+3*indx); 
+	int bc_size = new_state.size() - (12+3*indx);
+	new_covar.bottomRightCorner(bc_size, bc_size) = covariance.bottomRightCorner(bc_size, bc_size);
+	new_state.tail(bc_size) = state.tail(bc_size); 
+}
+
 void EKF::prediction(VectorXf& state_est, MatrixXf& P_est){
 	calculate_state_est(state_est); // with motion update (prediction)
 	// now calculate new estimated covariance P_est

@@ -28,13 +28,14 @@ class EKF{
     void calculate_Rot(Matrix3f& R); // calculate rotation matrix 
     void calculate_F(MatrixXf& F);
     void calculate_H(MatrixXf& H);
-    void EKF::calculate_dRdphi(Matrix3f& mat);
-    void EKF::calculate_dRdthet(Matrix3f& mat);
-    void EKF::calculate_dRdpsi(Matrix3f& mat);
+    void calculate_dRdphi(Matrix3f& mat);
+    void calculate_dRdthet(Matrix3f& mat);
+    void calculate_dRdpsi(Matrix3f& mat);
 
 public:
 	void load_initial();
 	void add_landmark(Vector3f pos, Matrix3f pos_covar);
+    void delete_landmark(int indx); 
 	void prediction(VectorXf& state_est, MatrixXf& P_est);
 	void update(VectorXf measurement, VectorXf state_est, MatrixXf P_est);
 	void get_state(VectorXf& state);
