@@ -1,7 +1,16 @@
 #include "EKF.h" 
 
-void EKF::load_initial(){
-	std::cout << "not yet implemented" << std::endl; 
+void EKF::load_initial(float f_x, float f_y, int cx, int cy, float target_w, float target_h, float deltat){
+	fu = f_x; fv = f_y; // focal lengths
+	u0 = cx; v0 = cy; // image center 
+	w = target_w; h = target_h; // shape of target 
+	state.setZero(12); // initialize as 0, no obsts 
+	covariance.setZero(12,12);
+	// initialize Q and R 
+	process_noise = 0.5;
+	meas_noise = 1;
+	Q = process_noise*MatrixXf::Identity(12,12);
+	R = meas_noise*MatrixXf::Identity(4,4); // bounding box is decently accurate
 }
 
 void EKF::calculate_Rot(Matrix3f& R){
@@ -90,18 +99,19 @@ void EKF::calculate_state_est(VectorXf& state_est){
 		obstacle_state(2) = state(i+2) - state(2)*dt; 
 		newstate.segment(i,3) = R*obstacle_state; 
 	}
+	state_est = newstate;
 }
 void EKF::calculate_meas_est(VectorXf state_est, VectorXf& meas_est){
 	// calculate measurement from state estimate 
 	int num_obstacles = (state_est.size() - 12)/3;
 	meas_est.setZero(num_obstacles + 4);
-	meas_est(0) = f*(state_est(7) - w/2)/state_est(6) + u0; 
-	meas_est(1) = f*(state_est(8) - h/2)/state_est(6) + v0; 
-	meas_est(2) = f*(state_est(7) + w/2)/state_est(6) + u0;
-	meas_est(3) = f*(state_est(8) + h/2)/state_est(6) + v0; 
+	meas_est(0) = fu*(state_est(7) - w/2)/state_est(6) + u0; 
+	meas_est(1) = fv*(state_est(8) - h/2)/state_est(6) + v0; 
+	meas_est(2) = fu*(state_est(7) + w/2)/state_est(6) + u0;
+	meas_est(3) = fv*(state_est(8) + h/2)/state_est(6) + v0; 
 	for (int i = 0; i < num_obstacles; i++){
-		meas_est(4+2*i) = f*state_est(12+3*i+1)/state_est(12+3*i) + u0; 
-		meas_est(4+2*i+1) = f*state_est(12+3*i+2)/state_est(12+3*i) + v0; 
+		meas_est(4+2*i) = fu*state_est(12+3*i+1)/state_est(12+3*i) + u0; 
+		meas_est(4+2*i+1) = fv*state_est(12+3*i+2)/state_est(12+3*i) + v0; 
 	}
 }
 
@@ -165,18 +175,20 @@ void EKF::calculate_H(MatrixXf& H){
 	H.setZero(4 + num_obstacles*2, 12 + num_obstacles*3);
 	// first 6 cols all zeros
 	// the target 
-	H(0,6) = -f*(state(7) - w/2)/(state(6)*state(6));
-	H(1,6) = -f*(state(8) - h/2)/(state(6)*state(6));
-	H(2,6) = -f*(state(7) + w/2)/(state(6)*state(6));
-	H(3,6) = -f*(state(8) + h/2)/(state(6)*state(6));
-	H.block(0,7,2,2) = f/state(6)*MatrixXf::Identity(2,2);
-	H.block(3,7,2,2) = f/state(6)*MatrixXf::Identity(2,2);
+	H(0,6) = -fu*(state(7) - w/2)/(state(6)*state(6));
+	H(1,6) = -fv*(state(8) - h/2)/(state(6)*state(6));
+	H(2,6) = -fu*(state(7) + w/2)/(state(6)*state(6));
+	H(3,6) = -fv*(state(8) + h/2)/(state(6)*state(6));
+	H(0,7) = fu/state(6);
+	H(1,8) = fv/state(6);
+	H(3,7) = fu/state(6);
+	H(4,8) = fv/state(6);
 	// obstacle landmarks 
 	for (int i = 0; i < num_obstacles; i++){
-		H(4+2*i,12+3*i) = -f*state(12+3*i+1)/(state(12+3*i)*state(12+3*i));
-		H(4+2*i+1,12+3*i) = -f*state(12+3*i+2)/(state(12+3*i)*state(12+3*i));
-		H(4+2*i,12+3*i+1) = f/state(12+3*i);
-		H(4+2*i,12+3*i+2) = f/state(12+3*i);
+		H(4+2*i,12+3*i) = -fu*state(12+3*i+1)/(state(12+3*i)*state(12+3*i));
+		H(4+2*i+1,12+3*i) = -fv*state(12+3*i+2)/(state(12+3*i)*state(12+3*i));
+		H(4+2*i,12+3*i+1) = fu/state(12+3*i);
+		H(4+2*i,12+3*i+2) = fv/state(12+3*i);
 	}
 }
 
@@ -189,7 +201,14 @@ void EKF::add_landmark(Vector3f pos, Matrix3f pos_covar){
 	new_state.head(state.size()) = state; 
 	new_covar.bottomRightCorner(3,3) = pos_covar; 
 	new_state.tail(3) = pos; 
-}
+	// assign to state
+	state = new_state;
+	covariance = new_covar;
+	// also update Q and R 
+	Q = process_noise*MatrixXf::Identity(state.size(), state.size());
+	int num_obstacles = (state.size() - 12)/3;
+	R = meas_noise*MatrixXf::Identity(4+2*num_obstacles, 4+2*num_obstacles);
+}	
 
 void EKF::delete_landmark(int indx){
 	int curr_num_obstacles = (state.size()-12)/3;
@@ -202,6 +221,13 @@ void EKF::delete_landmark(int indx){
 	int bc_size = new_state.size() - (12+3*indx);
 	new_covar.bottomRightCorner(bc_size, bc_size) = covariance.bottomRightCorner(bc_size, bc_size);
 	new_state.tail(bc_size) = state.tail(bc_size); 
+	// assign to state 
+	state = new_state; 
+	covariance = new_covar;
+	// also update Q and R
+	Q = process_noise*MatrixXf::Identity(state.size(), state.size());
+	int num_obstacles = (state.size() - 12)/3;
+	R = meas_noise*MatrixXf::Identity(4+2*num_obstacles, 4+2*num_obstacles);
 }
 
 void EKF::prediction(VectorXf& state_est, MatrixXf& P_est){

@@ -20,9 +20,11 @@ class EKF{
     MatrixXf Q; 
     MatrixXf R; 
     float dt; 
-    float f; // camera focal length
+    float fu, fv; // camera focal length 
     float w, h; //w, h target marker width and height (in physical world)
     int u0, v0; // image pixel center
+    float process_noise;
+    float meas_noise; 
     void calculate_state_est(VectorXf& state_est);
     void calculate_meas_est(VectorXf state_est, VectorXf& meas_est);
     void calculate_Rot(Matrix3f& R); // calculate rotation matrix 
@@ -33,7 +35,7 @@ class EKF{
     void calculate_dRdpsi(Matrix3f& mat);
 
 public:
-	void load_initial();
+	void load_initial(float fu, float fv, int u0, int v0, float w, float h, float dt);
 	void add_landmark(Vector3f pos, Matrix3f pos_covar);
     void delete_landmark(int indx); 
 	void prediction(VectorXf& state_est, MatrixXf& P_est);
