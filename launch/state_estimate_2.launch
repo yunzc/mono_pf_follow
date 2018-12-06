@@ -9,4 +9,7 @@
 
 	<node name="state_estimate" pkg="mono_pf_follow" type="state_estimate_2" output="screen" 
 					args="$(arg f_x) $(arg f_y) $(arg c_x) $(arg c_y) $(arg target_width) $(arg target_height) $(arg rate)" />
+
+	<node type="rviz" name="rviz" pkg="rviz" args="-d $(find mono_pf_follow)/rviz/viz.rviz" />
+
 </launch>

@@ -102,7 +102,6 @@ void EKFobst::update(VectorXf measurement, VectorXf state_est, MatrixXf P_est){
 	state = state_est + K*y; // update state estimate in EKFobst 
 	MatrixXf I = MatrixXf::Identity(P_est.rows(), P_est.cols());
 	covariance = (I - K*H)*P_est;	// update covariance 
-	std::cout << state << std::endl; 
 }
 
 void EKFobst::get_state(VectorXf& x){
