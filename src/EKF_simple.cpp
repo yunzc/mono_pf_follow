@@ -61,7 +61,7 @@ void EKF::update(VectorXf measurement, VectorXf state_est, MatrixXf P_est){
 	VectorXf h_; 
 	calculate_meas_est(state_est, h_);
 	VectorXf y = measurement - h_; // difference between measurement and estimate
-	std::cout << "state_est: " << state_est << std::endl; 
+	// std::cout << "state_est: " << state_est << std::endl; 
 	// std::cout << "h: " << h << std::endl; 
 	// std::cout << "meas: " << measurement << std::endl; 
 	MatrixXf H; 

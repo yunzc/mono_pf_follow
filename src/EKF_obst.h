@@ -35,7 +35,7 @@ public:
 	void add_landmark(Vector3f pos, Matrix3f pos_covar);
     void delete_landmark(int indx); 
 	void prediction(VectorXf& state_est, MatrixXf& P_est);
-	void update(VectorXf measurement, VectorXf state_est, MatrixXf P_est);
+	void update(VectorXf measurement, VectorXf state_est, MatrixXf P_est, MatrixXf R);
 	void get_state(VectorXf& state);
 	void get_covariance(MatrixXf& P);
 };

@@ -56,7 +56,7 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
     filt_obst.load_initial(f_x, f_y, cx, cy, 1.0/freq);
 	fu = f_x; fv = f_y;
 	u0 = cx; v0 = cy; 
-	yz_uncertainty = 0.5;
+	yz_uncertainty = 0.05;
 	init_dist = 2.0;
 	max_init_dist = 5.0; 
 	maxFeatures = 88;
@@ -129,9 +129,9 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
         filt_obst.prediction(state_obst_est, P_obst_est);
         // build the measurement vector 
         VectorXf meas = VectorXf::Zero(3);
-        int num_obsts = state_obst_est.size()/3; 
+        int num_obsts = (state_obst_est.size()-3)/3; 
         VectorXf meas_obs = VectorXf::Zero(num_obsts*2); 
-
+        Matrix3f R_obs = MatrixXf::Zero(num_obsts*2,num_obsts*2); // noise matrix
         // first fill in the bounding box: 
         if (target_detected){
             float x = 0; 
@@ -161,10 +161,10 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
         std::vector<int> to_delete; // keep track of features to delete 
         // now need to fill in the obstacle meas info 
         for (int i = 0; i < num_obsts; i++){
-            int u = fu*state_obst_est(3*i+1)/state_obst_est(3*i) + u0; 
-            int v = fv*state_obst_est(3*i+2)/state_obst_est(3*i) + v0; 
+            int u = fu*state_obst_est(3+3*i+1)/state_obst_est(3+3*i) + u0; 
+            int v = fv*state_obst_est(3+3*i+2)/state_obst_est(3+3*i) + v0;
             // extract corresponding covariance matrix 
-            Matrix3f P_obst = P_obst_est.block(3*i,3*i,3,3);
+            Matrix3f P_obst = P_obst_est.block(3+3*i,3+3*i,3,3);
             // get eigenvalue/vectors
             EigenSolver<Matrix3f> es(P_obst);
             MatrixXcf D = es.eigenvalues().asDiagonal(); // egienvector matrix
@@ -175,10 +175,9 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             float y_var = (float)D(1,1).real(); 
             float z_var = (float)D(2,2).real();
             float r = sqrt(MAX(y_var, z_var)); // two times largest std dev
-            float x_min = MAX(0.1, x_val - sqrt(x_var));
+            // float x_min = MAX(0.1, x_val - sqrt(x_var));
             // calculate min dist acceptable
-            float min_dst_sq = fu*fv*r*r/(x_min*x_min);
-            std::cout << sqrt(min_dst_sq) << std::endl; 
+            float min_dst_sq = fu*fv*r*r/(x_val*x_val);
             int indx = -1;
             for (int j = 0; j < featurePts.size(); j++){
                 float dist_sq = (featurePts[j].x - (float)u)*(featurePts[j].x - (float)u)
@@ -191,6 +190,7 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             if (indx != -1){
                 meas_obs(2*i) = featurePts[indx].x; 
                 meas_obs(2*i+1) = featurePts[indx].y; 
+                R_obs.block(2*i,2*i,2,2) = min_dst_sq*Matrix2f::Identity(2,2);
                 // mark as matched 
                 matched[indx] = 1; 
             }else{
@@ -199,9 +199,12 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
                     // mark for deleteion
                     to_delete.push_back(i);
                 }
+                meas_obs(2*i) = u; 
+                meas_obs(2*i+1) = v; 
+                R_obs.block(2*i,2*i,2,2) = 10e6*Matrix2f::Identity(2,2);
             }
         }
-        filt_obst.update(meas_obs, state_obst_est, P_obst_est);
+        filt_obst.update(meas_obs, state_obst_est, P_obst_est, R_obs);
         // // delete features 
         std::reverse(to_delete.begin(),to_delete.end());
         for (int i = 0; i < to_delete.size(); i++){
@@ -231,12 +234,13 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
         VectorXf obstalces_state; 
         filt_obst.get_state(obstalces_state); 
-        int n = obstalces_state.size()/3; 
+        std::cout << "dxdydzy: " << obstalces_state(0) << " " << obstalces_state(1) << " " << obstalces_state(2) << std::endl; 
+        int n = (obstalces_state.size()-3)/3; 
         for (int i = 0; i < n; i++){
             pcl::PointXYZ pt; 
-            pt.x = obstalces_state(3*i); 
-            pt.y = obstalces_state(3*i+1);
-            pt.z = obstalces_state(3*i+2);
+            pt.x = obstalces_state(3+3*i); 
+            pt.y = obstalces_state(3+3*i+1);
+            pt.z = obstalces_state(3+3*i+2);
             cloud->push_back(pt);
         }
         // create header 
