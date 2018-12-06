@@ -4,11 +4,13 @@ void EKF::load_initial(float f_x, float f_y, int cx, int cy, float target_w, flo
 	fu = f_x; fv = f_y; // focal lengths
 	u0 = cx; v0 = cy; // image center 
 	w = target_w; h = target_h; // shape of target 
-	state.setZero(12); // initialize as 0, no obsts 
+	dt = deltat; 
+	state.setZero(12); // initialize as 0, no obsts (except for the x values)
+	state(6) = 1; 
 	covariance.setZero(12,12);
 	// initialize Q and R 
-	process_noise = 0.5;
-	meas_noise = 1;
+	process_noise = 10;
+	meas_noise = 10;
 	Q = process_noise*MatrixXf::Identity(12,12);
 	R = meas_noise*MatrixXf::Identity(4,4); // bounding box is decently accurate
 }
@@ -104,7 +106,7 @@ void EKF::calculate_state_est(VectorXf& state_est){
 void EKF::calculate_meas_est(VectorXf state_est, VectorXf& meas_est){
 	// calculate measurement from state estimate 
 	int num_obstacles = (state_est.size() - 12)/3;
-	meas_est.setZero(num_obstacles + 4);
+	meas_est.setZero(2*num_obstacles + 4);
 	meas_est(0) = fu*(state_est(7) - w/2)/state_est(6) + u0; 
 	meas_est(1) = fv*(state_est(8) - h/2)/state_est(6) + v0; 
 	meas_est(2) = fu*(state_est(7) + w/2)/state_est(6) + u0;
@@ -181,8 +183,8 @@ void EKF::calculate_H(MatrixXf& H){
 	H(3,6) = -fv*(state(8) + h/2)/(state(6)*state(6));
 	H(0,7) = fu/state(6);
 	H(1,8) = fv/state(6);
-	H(3,7) = fu/state(6);
-	H(4,8) = fv/state(6);
+	H(2,7) = fu/state(6);
+	H(3,8) = fv/state(6);
 	// obstacle landmarks 
 	for (int i = 0; i < num_obstacles; i++){
 		H(4+2*i,12+3*i) = -fu*state(12+3*i+1)/(state(12+3*i)*state(12+3*i));
@@ -236,12 +238,14 @@ void EKF::prediction(VectorXf& state_est, MatrixXf& P_est){
 	MatrixXf F; 
 	calculate_F(F); // motion update matrix
 	P_est = F*covariance*F + Q; // TODO check matrix mult in eigen
+	std::cout << "predict: " << state(6) << " " << state_est(6) << std::endl; 
 }
 
 void EKF::update(VectorXf measurement, VectorXf state_est, MatrixXf P_est){
 	VectorXf h; 
 	calculate_meas_est(state_est, h);
 	VectorXf y = measurement - h; // difference between measurement and estimate
+	std::cout << y << std::endl; 
 	MatrixXf H; 
 	calculate_H(H);
 	MatrixXf S = H*P_est*H.transpose() + R; // TODO check matrix transpose/mult in eigen
@@ -249,6 +253,7 @@ void EKF::update(VectorXf measurement, VectorXf state_est, MatrixXf P_est){
 	state = state_est + K*y; // update state estimate in EKF 
 	MatrixXf I = MatrixXf::Identity(P_est.rows(), P_est.cols());
 	covariance = (I - K*H)*P_est;	// update covariance 
+	// std::cout << "update: " << state(6) << " " << state_est(6) << " " << h(0) << std::endl; 
 }
 
 void EKF::get_state(VectorXf& x){

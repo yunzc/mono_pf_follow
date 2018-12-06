@@ -1,0 +1,12 @@
+<launch>
+	<arg name="f_x" value="600" />
+	<arg name="f_y" value="600" />
+	<arg name="c_x" value="320" />
+	<arg name="c_y" value="240" />
+	<arg name="target_width" value="0.09" />
+	<arg name="target_height" value="0.09" />
+	<arg name="rate" value="30" />
+
+	<node name="state_estimate" pkg="mono_pf_follow" type="state_estimate_2" output="screen" 
+					args="$(arg f_x) $(arg f_y) $(arg c_x) $(arg c_y) $(arg target_width) $(arg target_height) $(arg rate)" />
+</launch>

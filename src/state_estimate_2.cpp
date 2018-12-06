@@ -15,7 +15,8 @@
 #include <geometry_msgs/Point.h>
 #include <pcl_ros/point_cloud.h>
 
-#include "EKF.h"
+#include "EKF_simple.h"
+#include "EKF_obst.h"
 #include <Eigen/Dense> // for matrices and vectors
 #include <Eigen/Eigenvalues>
 
@@ -29,6 +30,7 @@ class StateEstimator{
 	ros::Publisher target_pub; 
 	ros::Publisher obstacle_pub;
 	EKF filt; 
+    EKFobst filt_obst; 
 	cv::Mat src, src_gray;
 	int ID = 0; // target labeled with aruco code of ID = 0
 	int maxFeatures;
@@ -39,7 +41,7 @@ class StateEstimator{
 	int u0, v0; // image center 
 	const char* source_window = "Image";
 	void detect_features(std::vector<cv::Point2f>& pts);
-	void add_new_features(std::vector<cv::Point2f>& pts);
+    void add_new_features(std::vector<cv::Point2f>& pts);
 
 public:
 	StateEstimator(float f_x, float f_y, int cx, int cy, float w, float h, float dt);
@@ -48,6 +50,7 @@ public:
 StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, float h, float freq){
 	// load values 
 	filt.load_initial(f_x, f_y, cx, cy, w, h, 1.0/freq);
+    filt_obst.load_initial(f_x, f_y, cx, cy, 1.0/freq);
 	fu = f_x; fv = f_y;
 	u0 = cx; v0 = cy; 
 	yz_uncertainty = 0.5;
@@ -86,76 +89,91 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             	}
             }
         }
+        // place mask on target 
         if (target_detected){
             std::vector<cv::Point> polypts; 
             // std::cout << "target corners: " << std::endl; 
             for (int j = 0; j < target_corners.size(); j++){
-            	// std::cout << target_corners[j] << std::endl; 
+                // std::cout << target_corners[j] << std::endl; 
                 polypts.push_back(cv::Point((int)target_corners[j].x, (int)target_corners[j].y));
             }
             fillConvexPoly(src_gray, polypts, cv::Scalar(1.0, 1.0, 1.0), 16, 0);
             // mask target from feature detector
         }
-
         // shi tomasi feature detection
         std::vector<cv::Point2f> featurePts;
-    	detect_features(featurePts); // shi tomasi feature detector 
+        detect_features(featurePts); // shi tomasi feature detector 
         for( size_t i = 0; i < featurePts.size(); i++ ){
             int radius = 5;
             circle(src, featurePts[i], radius, cv::Scalar(0, 0, 255));
         }
-        MatrixXf P_est; VectorXf state_est; 
-        filt.prediction(state_est, P_est); // motion prediction step 
-        int num_obsts = (state_est.size() - 12)/3;
-        std::cout << "number of obst points: " << num_obsts << std::endl; 
+
+        MatrixXf P_est, P_obst_est; VectorXf state_est, state_obst_est; 
+        // motion prediction step 
+        filt.prediction(state_est, P_est); 
+        filt_obst.prediction(state_obst_est, P_obst_est);
         // build the measurement vector 
-        VectorXf meas = VectorXf::Zero(4+2*num_obsts);
+        VectorXf meas = VectorXf::Zero(3);
+        int num_obsts = state_obst_est.size()/3; 
+        VectorXf meas_obs = VectorXf::Zero(num_obsts*2); 
+
         // first fill in the bounding box: 
         if (target_detected){
-        	// upper left corner (negative negative)
-        	meas(0) = (float)target_corners[2].x; 
-        	meas(1) = (float)target_corners[2].y;
-        	// lower right corner (post post)
-        	meas(2) = (float)target_corners[0].x; 
-        	meas(3) = (float)target_corners[0].y;
-        }else{
-        	// dummy 
-        	meas(0) = 292;
-        	meas(1) = 215; 
-        	meas(2) = 351;
-        	meas(3) = 274;
+            float x = 0; 
+            float y = 0; 
+            std::vector<float> heights; 
+            for (int j = 0; j < target_corners.size(); j++){
+                x += (float)target_corners[j].x;
+                y += (float)target_corners[j].y;
+                // std::cout << target_corners[j] << std::endl;
+                if (j == 1){
+                    float dx = (float)target_corners[j].x - (float)target_corners[j+1].x; 
+                    float dy = (float)target_corners[j].y - (float)target_corners[j+1].y;
+                    heights.push_back(sqrt(dx*dx + dy*dy));
+                }else if (j == 3){
+                    float dx = (float)target_corners[j].x - (float)target_corners[0].x; 
+                    float dy = (float)target_corners[j].y - (float)target_corners[0].y;
+                    heights.push_back(sqrt(dx*dx + dy*dy));
+                }
+            }
+        	meas(0) = x/(float)target_corners.size();
+        	meas(1) = y/(float)target_corners.size();
+            meas(2) = (heights[0] + heights[1])/2.0; 
+            // update
+            filt.update(meas, state_est, P_est);
         }
+
         // now need to fill in the obstacle meas info 
         for (int i = 0; i < num_obsts; i++){
-        	int u = fu*state_est(12+3*i+1)/state_est(12+3*i) + u0; 
-			int v = fv*state_est(12+3*i+2)/state_est(12+3*i) + v0; 
-			// extract corresponding covariance matrix 
-			Matrix3f P_obst = P_est.block(12+3*i,12+3*i,3,3);
-			// get eigenvalue/vectors
-			EigenSolver<Matrix3f> es(P_obst);
-			MatrixXcf D = es.eigenvalues().asDiagonal(); // egienvector matrix
-			MatrixXcf V = es.eigenvectors(); // col vect with the eigenvalues 
-			float min_dst_sq = 100;
-			int indx = -1;
-			for (int j = 0; j < featurePts.size(); j++){
-				float dist_sq = (featurePts[j].x - (float)u)*(featurePts[j].x - (float)u)
-					+ (featurePts[j].y - (float)v)*(featurePts[j].y - (float)v);
-				if (dist_sq < min_dst_sq){
-					min_dst_sq = dist_sq; 
-					indx = j;
-				}
-			}
-			if (indx != -1){
-				meas(4+2*i) = featurePts[indx].x; 
-				meas(4+2*i+1) = featurePts[indx].y; 
-				featurePts.erase(featurePts.begin()+indx);
-			}
+            int u = fu*state_obst_est(3*i+1)/state_obst_est(3*i) + u0; 
+            int v = fv*state_obst_est(3*i+2)/state_obst_est(3*i) + v0; 
+            // extract corresponding covariance matrix 
+            Matrix3f P_obst = P_obst_est.block(3*i,3*i,3,3);
+            // get eigenvalue/vectors
+            EigenSolver<Matrix3f> es(P_obst);
+            MatrixXcf D = es.eigenvalues().asDiagonal(); // egienvector matrix
+            MatrixXcf V = es.eigenvectors(); // col vect with the eigenvalues 
+            float min_dst_sq = 100;
+            int indx = -1;
+            for (int j = 0; j < featurePts.size(); j++){
+                float dist_sq = (featurePts[j].x - (float)u)*(featurePts[j].x - (float)u)
+                    + (featurePts[j].y - (float)v)*(featurePts[j].y - (float)v);
+                if (dist_sq < min_dst_sq){
+                    min_dst_sq = dist_sq; 
+                    indx = j;
+                }
+            }
+            if (indx != -1){
+                meas_obs(2*i) = featurePts[indx].x; 
+                meas_obs(2*i+1) = featurePts[indx].y; 
+                featurePts.erase(featurePts.begin()+indx);
+            }
         }
-        // update
-        filt.update(meas, state_est, P_est);
+        filt_obst.update(meas_obs, state_obst_est, P_obst_est);
+
         // then add new features 
-        if (num_obsts < 0){
-        	add_new_features(featurePts);
+        if (num_obsts < 1){
+            add_new_features(featurePts);
         }
         cv::namedWindow(source_window);
         cv::imshow( source_window, src );
@@ -187,32 +205,33 @@ void StateEstimator::detect_features(std::vector<cv::Point2f>& pts){
 }
 
 void StateEstimator::add_new_features(std::vector<cv::Point2f>& pts){
-	// from new feature (2d image pt) add a set of possible 3d points into prob map 
-	for (int i = 0; i < pts.size(); i++){
-		int u = pts[i].x - u0; 
-		int v = pts[i].y - v0; 
-		// create unit vector correspondinng to direction of feature pt
-		float hx = 1; float hy = u/fu; float hz = v/fv;
-		float mag = hx/sqrt(hx*hx + hy*hy + hz*hz);
-		hx = hx/mag; hy = hy/mag; hz = hz/mag; 
-		float dist = init_dist; 
-		while (dist < max_init_dist){
-			Vector3f pt(dist*hx, dist*hy, dist*hz);
-			Matrix3f PC, V, D; // calculate covariance from eigenvectors and eigenvalues 
-			dist += init_dist;
-			D.setZero(3,3); 
-			D(0,0) = (init_dist/2)*(init_dist/2);
-			// set up eigenvalues
-			D(1,1) = yz_uncertainty*yz_uncertainty; D(2,2) = yz_uncertainty*yz_uncertainty;
-			// set up eigenvector matrix
-			V(1,1) = 1; // [0; 1; 0] 
-			V(2,2) = 1; // [0; 0; 1]
-			V(0,0) = hx; V(1,0) = hy; V(2,0) = hz; // [hx; hy; hz]
-			PC = V*D*V.transpose(); 
-			filt.add_landmark(pt, PC); // args are (pos, pos_covar)
-		}
-	}
+    // from new feature (2d image pt) add a set of possible 3d points into prob map 
+    for (int i = 0; i < pts.size(); i++){
+        int u = pts[i].x - u0; 
+        int v = pts[i].y - v0; 
+        // create unit vector correspondinng to direction of feature pt
+        float hx = 1; float hy = u/fu; float hz = v/fv;
+        float mag = hx/sqrt(hx*hx + hy*hy + hz*hz);
+        hx = hx/mag; hy = hy/mag; hz = hz/mag; 
+        float dist = init_dist; 
+        while (dist < max_init_dist){
+            Vector3f pt(dist*hx, dist*hy, dist*hz);
+            Matrix3f PC, V, D; // calculate covariance from eigenvectors and eigenvalues 
+            dist += init_dist;
+            D.setZero(3,3); 
+            D(0,0) = (init_dist/2)*(init_dist/2);
+            // set up eigenvalues
+            D(1,1) = yz_uncertainty*yz_uncertainty; D(2,2) = yz_uncertainty*yz_uncertainty;
+            // set up eigenvector matrix
+            V(1,1) = 1; // [0; 1; 0] 
+            V(2,2) = 1; // [0; 0; 1]
+            V(0,0) = hx; V(1,0) = hy; V(2,0) = hz; // [hx; hy; hz]
+            PC = V*D*V.transpose(); 
+            filt_obst.add_landmark(pt, PC); // args are (pos, pos_covar)
+        }
+    }
 }
+
 // pcl::PointXYZ toPush;
 //             toPush.x = px; toPush.y = py; toPush.z = pZ;
 
@@ -223,5 +242,3 @@ int main(int argc, char** argv){
 	StateEstimator vision(atof(argv[1]), atof(argv[2]), 
 			atoi(argv[3]), atoi(argv[4]), atof(argv[5]), atof(argv[6]), atof(argv[7]));
 }
-
-// TODO: I think just coding the update/motion model 

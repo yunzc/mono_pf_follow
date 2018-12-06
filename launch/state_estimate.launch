@@ -1,6 +1,6 @@
 <launch>
-	<arg name="f_x" value="976.83851554" />
-	<arg name="f_y" value="982.45168391" />
+	<arg name="f_x" value="6" />
+	<arg name="f_y" value="2" />
 	<arg name="c_x" value="322" />
 	<arg name="c_y" value="245" />
 	<arg name="target_width" value="0.06" />

@@ -146,7 +146,8 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(tracker src/tracker.cpp src/EKF.cpp)
-add_executable(state_estimate src/state_estimate.cpp src/EKF)
+add_executable(state_estimate src/state_estimate.cpp src/EKF.cpp)
+add_executable(state_estimate_2 src/state_estimate_2.cpp src/EKF_simple.cpp src/EKF_obst.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -161,6 +162,7 @@ add_executable(state_estimate src/state_estimate.cpp src/EKF)
 ## Specify libraries to link a library or executable target against
 target_link_libraries(tracker ${catkin_LIBRARIES} ${OpenCV_LIBS} ${Eigen3_LIBRARIES})
 target_link_libraries(state_estimate ${catkin_LIBRARIES} ${OpenCV_LIBS} ${Eigen3_LIBRARIES})
+target_link_libraries(state_estimate_2 ${catkin_LIBRARIES} ${OpenCV_LIBS} ${Eigen3_LIBRARIES})
 #############
 ## Install ##
 #############
