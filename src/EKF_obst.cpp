@@ -41,9 +41,7 @@ void EKFobst::calculate_F(MatrixXf& F){
 
 void EKFobst::calculate_H(MatrixXf& H){
 	int num_obstacles = (state.size())/3;
-	std::cout << "no: " << num_obstacles << std::endl; 
 	H.setZero(num_obstacles*2, 3+num_obstacles*3);
-	std::cout << "con't set zero" << std::endl; 
 	// obstacle landmarks 
 	for (int i = 0; i < num_obstacles; i++){
 		H(2*i,3+3*i) = -fu*state(3+3*i+1)/(state(3+3*i)*state(3+3*i));
@@ -94,6 +92,7 @@ void EKFobst::delete_landmark(int indx){
 void EKFobst::prediction(VectorXf& state_est, MatrixXf& P_est){
 	calculate_state_est(state_est); // with motion update (prediction)
 	// now calculate new estimated covariance P_est
+	// std::cout << "state size in prediction: " << state.size() << std::endl; 
 	MatrixXf F; 
 	calculate_F(F); // motion update matrix
 	P_est = F*covariance*F.transpose() + Q;

@@ -40,6 +40,7 @@ public:
     void delete_landmark(int indx); 
 	void prediction(VectorXf& state_est, MatrixXf& P_est);
 	void update(VectorXf measurement, VectorXf state_est, MatrixXf P_est);
+    void motion_update(VectorXf state_est, MatrixXf P_est);
 	void get_state(VectorXf& state);
 	void get_covariance(MatrixXf& P);
 };

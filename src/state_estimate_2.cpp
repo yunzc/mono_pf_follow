@@ -131,7 +131,7 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
         VectorXf meas = VectorXf::Zero(3);
         int num_obsts = (state_obst_est.size()-3)/3; 
         VectorXf meas_obs = VectorXf::Zero(num_obsts*2); 
-        Matrix3f R_obs = MatrixXf::Zero(num_obsts*2,num_obsts*2); // noise matrix
+        MatrixXf R_obs = MatrixXf::Zero(num_obsts*2,num_obsts*2); // noise matrix
         // first fill in the bounding box: 
         if (target_detected){
             float x = 0; 
@@ -156,8 +156,9 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             meas(2) = (heights[0] + heights[1])/2.0; 
             // update
             filt.update(meas, state_est, P_est);
+        }else{
+            // filt.motion_update(state_est, P_est);
         }
-
         std::vector<int> to_delete; // keep track of features to delete 
         // now need to fill in the obstacle meas info 
         for (int i = 0; i < num_obsts; i++){
@@ -204,8 +205,10 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
                 R_obs.block(2*i,2*i,2,2) = 10e6*Matrix2f::Identity(2,2);
             }
         }
+        // std::cout << "num obs: " << num_obsts << std::endl; 
         filt_obst.update(meas_obs, state_obst_est, P_obst_est, R_obs);
-        // // delete features 
+
+        // delete features 
         std::reverse(to_delete.begin(),to_delete.end());
         for (int i = 0; i < to_delete.size(); i++){
             filt_obst.delete_landmark(to_delete[i]);
