@@ -114,10 +114,6 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
         // shi tomasi feature detection
         std::vector<cv::Point2f> featurePts;
         detect_features(featurePts); // shi tomasi feature detector 
-        for( size_t i = 0; i < featurePts.size(); i++ ){
-            int radius = 5;
-            circle(src, featurePts[i], radius, cv::Scalar(0, 0, 255));
-        }
 
         // initialize a vector of zeros to keep track of matches 
         std::vector<int> matched(featurePts.size(), 0); 
@@ -157,8 +153,24 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             // update
             filt.update(meas, state_est, P_est);
         }else{
-            // filt.motion_update(state_est, P_est);
+            filt.motion_update(state_est, P_est);
+            // // add to feature points 
+            // float u = fu*state_est(1)/state_est(0) + (float)u0; 
+            // float v = fv*state_est(2)/state_est(0) + (float)v0; 
+            // float len = fv*h/state_est(0); 
+            // featurePts.push_back(cv::Point2f(u,v));
+            // featurePts.push_back(cv::Point2f(u-len/3,v+len/3));
+            // featurePts.push_back(cv::Point2f(u-len/3,v-len/3));
+            // featurePts.push_back(cv::Point2f(u+len/3,v+len/3));
+            // featurePts.push_back(cv::Point2f(u+len/3,v-len/3));
         }
+
+        // some visuals 
+        for( size_t i = 0; i < featurePts.size(); i++ ){
+            int radius = 5;
+            circle(src, featurePts[i], radius, cv::Scalar(0, 0, 255));
+        }
+
         std::vector<int> to_delete; // keep track of features to delete 
         // now need to fill in the obstacle meas info 
         for (int i = 0; i < num_obsts; i++){
@@ -191,7 +203,7 @@ StateEstimator::StateEstimator(float f_x, float f_y, int cx, int cy, float w, fl
             if (indx != -1){
                 meas_obs(2*i) = featurePts[indx].x; 
                 meas_obs(2*i+1) = featurePts[indx].y; 
-                R_obs.block(2*i,2*i,2,2) = min_dst_sq*Matrix2f::Identity(2,2);
+                R_obs.block(2*i,2*i,2,2) = min_dst_sq*10*Matrix2f::Identity(2,2);
                 // mark as matched 
                 matched[indx] = 1; 
             }else{

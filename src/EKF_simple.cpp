@@ -6,7 +6,7 @@ void EKF::load_initial(float f_x, float f_y, int cx, int cy, float target_w, flo
 	w = target_w; h = target_h; // shape of target 
 	dt = deltat;
 	state.setZero(6); // initialize as 0, no obsts (except for the x values)
-	state(0) = 1; 
+	state(0) = 0.5; 
 	covariance = MatrixXf::Identity(6,6);
 	// initialize Q and R 
 	float meas_noise = 0.1;
@@ -63,17 +63,17 @@ void EKF::update(VectorXf measurement, VectorXf state_est, MatrixXf P_est){
 	calculate_meas_est(state_est, h_);
 	VectorXf y = measurement - h_; // difference between measurement and estimate
 	// std::cout << "state_est: " << state_est << std::endl; 
-	std::cout << "h: " << h_ << " se: " << state_est << std::endl; 
-	std::cout << "meas: " << measurement << std::endl; 
+	// std::cout << "h: " << h_ << " se: " << state_est << std::endl; 
+	// std::cout << "meas: " << measurement << std::endl; 
 	MatrixXf H; 
 	calculate_H(H);
 	MatrixXf S = H*P_est*H.transpose() + R; // TODO check matrix transpose/mult in eigen
 	MatrixXf K = P_est*H.transpose()*S.inverse(); // Kalman gain 
-	std::cout << "K: " << K << std::endl; 
+	// std::cout << "K: " << K << std::endl; 
 	state = state_est + K*y; // update state estimate in EKF 
 	MatrixXf I = MatrixXf::Identity(P_est.rows(), P_est.cols());
 	covariance = (I - K*H)*P_est;	// update covariance 
-	std::cout << "update: " << state << std::endl; 
+	// std::cout << "update: " << state << std::endl; 
 }
 
 void EKF::motion_update(VectorXf state_est, MatrixXf P_est){
